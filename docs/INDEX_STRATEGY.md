@@ -16,7 +16,75 @@ All models also have MongoDB's automatic `_id` index, which is never redeclared.
 
 No index is declared on `role` or `interests`:
 - `role` is only ever filtered as an optional, low-cardinality equality filter on the admin user listing; it will be added later only if a measured, required query justifies it.
-- `interests` is not indexed merely because the interest-grouping aggregation groups by it. That aggregation's `$unwind`/`$group` stages process the matched documents regardless of whether `interests` is indexed, so an index here would add write/storage cost without the grouping stages themselves becoming index-backed.
+- `interests` is not indexed merely because the interest-grouping aggregation groups by it. See "Scenario 1" below for the concrete evidence.
+
+## Scenario 1 — Group users by interests (`GET /api/admin/users/grouped-by-interests`)
+
+Implemented in `src/repositories/user.repository.js#groupByInterests`. This is
+the **only** Mongoose call made in that request path — one `User.aggregate(pipeline)`
+call, with pagination and the total group count computed inside the same
+pipeline via `$facet` (no separate count query, no `find`/`distinct`/`populate`
+call). This invariant is enforced by a dedicated test that monkey-patches
+`User.aggregate`, `find`, `findOne`, `distinct`, `countDocuments`,
+`estimatedDocumentCount`, and `populate` to assert their call counts.
+
+Pipeline, in order:
+1. `$addFields: { interests: { $setUnion: ['$interests', []] } }` — de-duplicates
+   each user's own interests array (e.g. `["chess","chess"]` → `["chess"]`) so a
+   repeated interest value can never make a user appear twice within one group
+   after `$unwind`.
+2. `$match: { 'interests.0': { $exists: true } }` — excludes users with an empty
+   (or missing) interests array from every group. This is the documented default
+   for empty interests, chosen over inventing an "uncategorized" group, since the
+   assessment's fallback of "omit them" keeps the grouped view focused on actual
+   interest clusters.
+3. `$unwind: '$interests'` — one document per (user, interest) pair.
+4. `$group` by interest, pushing only an explicit safe field list per user
+   (`_id`, `firstName`, `lastName`, `email`, `role`) — a password hash can never
+   reach the output even if the `User` schema gains new sensitive fields later,
+   because this is an inclusion list, not an exclusion list.
+5. `$project` / `$sort: { interest: 1 }` — stable, deterministic alphabetical
+   order (the grouped interest name is unique after `$group`, so no further
+   tie-breaker is needed).
+6. `$facet` — paginates the **groups** (not the users within a group, per the
+   assessment's stated preference for a grouped-by-interest screen) in `data`,
+   and computes `totalCount` in the same pass.
+
+### Index behavior (evidence)
+
+No index exists on `interests`, by design. Running
+`User.aggregate(pipeline).explain('executionStats')` against 100 seeded users
+(a mix of 1-interest users and users with an empty `interests` array) shows:
+
+```json
+{
+  "stage": "COLLSCAN",
+  "nReturned": 100,
+  "docsExamined": 100
+}
+```
+
+wrapped in a `$cursor` stage with `totalKeysExamined: 0` — the initial
+`$addFields`/`$match` portion that MongoDB pushes down into the query layer
+examines every document with a full collection scan, not an index scan.
+
+This is expected, and an `interests` index would not change it, for two
+reasons:
+1. The `$match` in this pipeline filters on the **computed** `interests` field
+   produced by the preceding `$addFields` ($setUnion-deduplicated), not on the
+   stored schema path directly. A B-tree index on the stored `interests` array
+   cannot be used to answer a query against a value MongoDB just computed one
+   stage earlier in the same pipeline.
+2. Even if the `$match` ran directly against the stored field, the subsequent
+   `$unwind`/`$group` stages still have to process every matching document and
+   every interest within it to build the per-interest user lists and counts —
+   an index only helps *locate* documents, not perform that grouping work.
+
+So the decision to omit an `interests` index is not just a general heuristic;
+it is confirmed by explain output for this exact pipeline shape. If a future,
+different query needed to filter users by a single known interest (e.g.
+`User.find({ interests: 'chess' })`), that would be a different, justified
+case for a multikey index on `interests` — but no such query exists yet.
 
 ## Note (`src/models/Note.js`)
 
