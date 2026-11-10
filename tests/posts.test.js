@@ -208,6 +208,26 @@ test('create: rejects a request missing required fields', async () => {
   assert.equal(res.status, 400);
 });
 
+test('create: rejects a title longer than 150 characters', async () => {
+  const user = await createUserDirect();
+  const res = await request('/api/posts', {
+    method: 'POST',
+    token: tokenFor(user),
+    body: { title: 'a'.repeat(151), content: 'c' },
+  });
+  assert.equal(res.status, 400);
+});
+
+test('create: accepts a title exactly 150 characters long', async () => {
+  const user = await createUserDirect();
+  const res = await request('/api/posts', {
+    method: 'POST',
+    token: tokenFor(user),
+    body: { title: 'a'.repeat(150), content: 'c' },
+  });
+  assert.equal(res.status, 201);
+});
+
 // --- Response safety -----------------------------------------------------------------
 
 test('safety: no post response ever includes a password field', async () => {
