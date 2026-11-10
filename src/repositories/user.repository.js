@@ -28,7 +28,7 @@ function create(data) {
 }
 
 function updateById(id, data) {
-  return User.findByIdAndUpdate(id, data, { new: true, runValidators: true });
+  return User.findByIdAndUpdate(id, data, { returnDocument: 'after', runValidators: true });
 }
 
 function deleteById(id) {
