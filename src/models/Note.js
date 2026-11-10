@@ -25,4 +25,11 @@ const noteSchema = new mongoose.Schema(
 // filter by `_id` + `userId`, which this index's prefix covers.
 noteSchema.index({ userId: 1, createdAt: -1, _id: -1 });
 
+// Supports the admin global notes listing's default newest-first sort (no
+// `userId` filter, so the index above cannot serve it — its leading key is
+// `userId`). Added after confirming with explain("executionStats") that
+// without this index the same query does a full COLLSCAN + in-memory SORT
+// over every note; see docs/INDEX_STRATEGY.md for the before/after evidence.
+noteSchema.index({ createdAt: -1, _id: -1 });
+
 module.exports = mongoose.model('Note', noteSchema);

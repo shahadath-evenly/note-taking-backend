@@ -144,12 +144,26 @@ test('Note: rejects missing required fields', async () => {
   await assert.rejects(() => Note.create({ title: 'Only a title' }));
 });
 
-test('Note: declares exactly the expected explicit index', () => {
+test('Note: declares exactly the expected explicit indexes', () => {
   const indexes = Note.schema.indexes();
 
-  assert.equal(indexes.length, 1, 'no unexpected indexes, e.g. a global createdAt index');
-  const [keys] = indexes[0];
-  assert.deepEqual(keys, { userId: 1, createdAt: -1, _id: -1 });
+  const ownerScopedIndex = indexes.find(([keys]) => Object.keys(keys)[0] === 'userId');
+  const globalIndex = indexes.find(
+    ([keys]) => Object.keys(keys).join(',') === 'createdAt,_id'
+  );
+  const standaloneUserIdIndex = indexes.find(
+    ([keys]) => Object.keys(keys).length === 1 && Object.keys(keys)[0] === 'userId'
+  );
+
+  assert.ok(ownerScopedIndex, 'expected the userId-prefixed compound index');
+  assert.deepEqual(ownerScopedIndex[0], { userId: 1, createdAt: -1, _id: -1 });
+
+  assert.ok(globalIndex, 'expected the createdAt+_id index for the admin global listing');
+  assert.deepEqual(globalIndex[0], { createdAt: -1, _id: -1 });
+
+  assert.equal(standaloneUserIdIndex, undefined, 'no standalone userId-only index should exist');
+
+  assert.equal(indexes.length, 2, 'no unexpected indexes beyond these two justified ones');
 });
 
 test('Post: creates with required fields referencing a user', async () => {
