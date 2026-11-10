@@ -7,7 +7,7 @@ const Note = require('../src/models/Note');
 const Post = require('../src/models/Post');
 
 const TEST_MONGO_URI =
-  process.env.MONGO_TEST_URI || 'mongodb://localhost:27017/secure_notes_test';
+  process.env.MONGO_TEST_URI || 'mongodb://localhost:27017/secure_notes_test_models';
 
 before(async () => {
   await mongoose.connect(TEST_MONGO_URI);
