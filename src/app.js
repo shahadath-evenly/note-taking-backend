@@ -26,6 +26,7 @@ app.use(express.urlencoded({ extended: true, limit: config.bodyLimit }));
 
 app.use("/health", healthRoutes);
 app.use("/api/auth", authRoutes);
+
 app.use("/api/admin/users", adminUsersRoutes);
 app.use("/api/admin/notes", adminNotesRoutes);
 app.use("/api/notes", notesRoutes);
