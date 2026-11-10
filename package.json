@@ -1,0 +1,21 @@
+{
+  "name": "secure-notes-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Backend API for the Secure Note-Taking Application",
+  "type": "commonjs",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "express": "5.3.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.14.0",
+    "nodemon": "3.1.14"
+  }
+}
