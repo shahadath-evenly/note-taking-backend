@@ -9,6 +9,7 @@ const adminUsersRoutes = require('./routes/adminUsers.routes');
 const adminNotesRoutes = require('./routes/adminNotes.routes');
 const notesRoutes = require('./routes/notes.routes');
 const userPostsRoutes = require('./routes/userPosts.routes');
+const postsRoutes = require('./routes/posts.routes');
 const notFound = require('./middlewares/notFound');
 const errorHandler = require('./middlewares/errorHandler');
 
@@ -25,6 +26,7 @@ app.use('/api/admin/users', adminUsersRoutes);
 app.use('/api/admin/notes', adminNotesRoutes);
 app.use('/api/notes', notesRoutes);
 app.use('/api/users', userPostsRoutes);
+app.use('/api/posts', postsRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

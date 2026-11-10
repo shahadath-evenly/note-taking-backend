@@ -140,7 +140,14 @@ scope required it.
 | Index | Supports | Why not redundant |
 | --- | --- | --- |
 | `{ userId: 1, createdAt: -1, _id: -1 }` | The user-posts `$lookup` aggregation's per-user equality match (`posts.userId == user._id`) and newest-first ordering within that lookup. | No standalone `userId` index is declared — it would be redundant since this compound index already starts with `userId` and serves equality-only lookups on that field too. |
-| `{ createdAt: -1, _id: -1 }` | The public posts listing, which the API contract requires to be newest-first with stable pagination. | Distinct key shape (no `userId` prefix); supports the global (non-owner-scoped) listing that the Post collection's first index cannot serve. |
+| `{ createdAt: -1, _id: -1 }` | The public posts listing (`GET /api/posts`), which defaults to newest-first with stable pagination and no `userId` filter. | Distinct key shape (no `userId` prefix); supports the global (non-owner-scoped) listing that the Post collection's first index cannot serve. |
+
+Both Post indexes were declared back in Phase 3, before either consuming
+endpoint existed, anticipating this exact shape. Now that `GET /api/posts`
+exists, `explain("executionStats")` on
+`Post.find({}).sort({ createdAt: -1, _id: -1 }).limit(10)` confirms an
+`IXSCAN` on `createdAt_-1__id_-1` with `totalDocsExamined: 10` (matching
+`nReturned`) against 100 seeded posts — no new index was needed.
 
 ## Scenario 2 — User posts via `$lookup` (`GET /api/users/:userId/posts`)
 
