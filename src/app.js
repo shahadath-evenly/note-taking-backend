@@ -16,7 +16,7 @@ const errorHandler = require("./middlewares/errorHandler");
 const app = express();
 
 app.use(helmet());
-// app.use(cors({ origin: config.corsOrigin, credentials: true }));
+app.use(cors({ origin: config.corsOrigin, credentials: true }));
 app.use(express.json({ limit: config.bodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: config.bodyLimit }));
 
