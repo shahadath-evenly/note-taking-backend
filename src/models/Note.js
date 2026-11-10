@@ -6,10 +6,11 @@ const noteSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      maxlength: [150, 'Title must be at most 150 characters'],
     },
     content: {
       type: String,
-      required: true,
+      default: '',
     },
     userId: {
       type: mongoose.Schema.Types.ObjectId,

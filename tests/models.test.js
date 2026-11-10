@@ -147,6 +147,25 @@ test('Note: rejects missing required fields', async () => {
   await assert.rejects(() => Note.create({ title: 'Only a title' }));
 });
 
+test('Note: content defaults to an empty string when omitted', async () => {
+  const user = await User.create(buildUserPayload({ email: 'note-no-content@example.com' }));
+  const note = await Note.create({ title: 'Title only', userId: user._id });
+
+  assert.equal(note.content, '');
+});
+
+test('Note: rejects a title longer than 150 characters', async () => {
+  const user = await User.create(buildUserPayload({ email: 'note-long-title@example.com' }));
+  await assert.rejects(() => Note.create({ title: 'a'.repeat(151), content: 'c', userId: user._id }));
+});
+
+test('Note: accepts a title exactly 150 characters long', async () => {
+  const user = await User.create(buildUserPayload({ email: 'note-max-title@example.com' }));
+  const note = await Note.create({ title: 'a'.repeat(150), content: 'c', userId: user._id });
+
+  assert.equal(note.title.length, 150);
+});
+
 test('Note: declares exactly the expected explicit indexes', () => {
   const indexes = Note.schema.indexes();
 

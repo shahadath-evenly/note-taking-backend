@@ -103,14 +103,48 @@ test('create: rejects an unauthenticated request', async () => {
   assert.equal(res.status, 401);
 });
 
-test('create: rejects a request missing required fields', async () => {
+test('create: rejects a request missing the title', async () => {
+  const user = await createUserDirect();
+  const res = await request('/api/notes', {
+    method: 'POST',
+    token: tokenFor(user),
+    body: { content: 'No title here' },
+  });
+  assert.equal(res.status, 400);
+});
+
+test('create: content is optional — a title-only note is created with empty content', async () => {
   const user = await createUserDirect();
   const res = await request('/api/notes', {
     method: 'POST',
     token: tokenFor(user),
     body: { title: 'Only a title' },
   });
+  const body = await res.json();
+
+  assert.equal(res.status, 201);
+  assert.equal(body.data.title, 'Only a title');
+  assert.equal(body.data.content, '');
+});
+
+test('create: rejects a title longer than 150 characters', async () => {
+  const user = await createUserDirect();
+  const res = await request('/api/notes', {
+    method: 'POST',
+    token: tokenFor(user),
+    body: { title: 'a'.repeat(151), content: 'c' },
+  });
   assert.equal(res.status, 400);
+});
+
+test('create: accepts a title exactly 150 characters long', async () => {
+  const user = await createUserDirect();
+  const res = await request('/api/notes', {
+    method: 'POST',
+    token: tokenFor(user),
+    body: { title: 'a'.repeat(150), content: 'c' },
+  });
+  assert.equal(res.status, 201);
 });
 
 // --- List --------------------------------------------------------------------
@@ -277,6 +311,45 @@ test('update: rejects an empty update body', async () => {
     method: 'PATCH',
     token: tokenFor(user),
     body: {},
+  });
+  assert.equal(res.status, 400);
+});
+
+test('update: content can be cleared to an empty string', async () => {
+  const user = await createUserDirect();
+  const note = await Note.create({ title: 'Title', content: 'Some content', userId: user._id });
+
+  const res = await request(`/api/notes/${note._id}`, {
+    method: 'PATCH',
+    token: tokenFor(user),
+    body: { content: '' },
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(body.data.content, '');
+});
+
+test('update: rejects clearing the title to an empty string', async () => {
+  const user = await createUserDirect();
+  const note = await Note.create({ title: 'Title', content: 'c', userId: user._id });
+
+  const res = await request(`/api/notes/${note._id}`, {
+    method: 'PATCH',
+    token: tokenFor(user),
+    body: { title: '' },
+  });
+  assert.equal(res.status, 400);
+});
+
+test('update: rejects a title longer than 150 characters', async () => {
+  const user = await createUserDirect();
+  const note = await Note.create({ title: 'Title', content: 'c', userId: user._id });
+
+  const res = await request(`/api/notes/${note._id}`, {
+    method: 'PATCH',
+    token: tokenFor(user),
+    body: { title: 'a'.repeat(151) },
   });
   assert.equal(res.status, 400);
 });
