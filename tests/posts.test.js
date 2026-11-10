@@ -16,6 +16,9 @@ let uniqueCounter = 0;
 
 before(async () => {
   await mongoose.connect(TEST_MONGO_URI);
+  // Index builds happen in the background after connect() resolves; without
+  // this, a test could run before an index is actually active on a fresh database.
+  await Promise.all([User.createIndexes(), Post.createIndexes()]);
   server = app.listen(0);
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });

@@ -11,6 +11,9 @@ const TEST_MONGO_URI =
 
 before(async () => {
   await mongoose.connect(TEST_MONGO_URI);
+  // Index builds happen in the background after connect() resolves; without
+  // this, a test could run before an index is actually active on a fresh database.
+  await Promise.all([User.createIndexes(), Note.createIndexes(), Post.createIndexes()]);
 });
 
 beforeEach(async () => {

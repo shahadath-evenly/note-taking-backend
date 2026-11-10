@@ -1,11 +1,13 @@
 # Index Strategy
 
 This document explains every explicit index declared with `schema.index()` in the
-Mongoose models, the query it supports, and why it is not redundant. It will be
-revisited with `explain("executionStats")` evidence once representative data and
-the relevant list/read endpoints exist (planned index audit phase).
+Mongoose models, the query it supports, and why it is not redundant.
 
 All models also have MongoDB's automatic `_id` index, which is never redeclared.
+
+A full audit (Phase 12, below the per-model tables) re-verified every entry in
+this document against real query shapes with `explain("executionStats")`
+after all backend endpoints were implemented.
 
 ## User (`src/models/User.js`)
 
@@ -197,6 +199,110 @@ posts (50 belonging to the target user, 200 belonging to another user):
 No additional index was added for this scenario — the existing Post compound
 index (declared for this exact purpose back when the model was created) is
 sufficient, confirmed by this evidence.
+
+## Phase 12 — full index audit
+
+A dedicated audit pass across every Mongoose schema and every list/read/aggregation
+query in the codebase, performed after all backend endpoints existed. It
+re-verifies every claim made in the sections above against real query shapes
+and adds a few that weren't yet covered individually.
+
+### Method
+
+1. Listed every `schema.index()` declaration (6 total: 2 on `User`, 2 on
+   `Note`, 2 on `Post`).
+2. Grepped every Mongoose call site across `src/repositories/`, `src/services/`,
+   and the two aggregation pipelines, and matched each one against the
+   filter/sort shape it actually issues at runtime.
+3. Seeded a scratch database (60 users, 300 notes, 300 posts — dropped
+   afterward) and ran `explain("executionStats")` for every one of those
+   shapes, including the non-default `sortBy` options the admin/public list
+   endpoints accept.
+
+### Results
+
+| # | Query (real call site) | Index used | Docs examined / returned | Collection scan? |
+| - | --- | --- | --- | --- |
+| 1 | User list, default sort (`createdAt` desc) | `createdAt_-1__id_-1` | 10 / 10 | No |
+| 2 | User list, `role` filter, default sort | `createdAt_-1__id_-1` (full index walk; `role` filtered in `FETCH`) | 60 / 6 | No — but touches nearly every doc anyway |
+| 3 | User list, `sortBy=email` | none — `SORT` + `COLLSCAN` | 60 / 10 | **Yes** |
+| 4 | User list, `sortBy=firstName`/`lastName` | none — `SORT` + `COLLSCAN` | 60 / 10 | **Yes** |
+| 5 | User list, search (firstName/lastName/email) | `createdAt_-1__id_-1` (sort order); regex filtered in `FETCH` | 50 / 10 | No |
+| 6 | `User.findOne({ email })` — login | `email_1` | 1 / 1 | No |
+| 7 | `User.findById(id)` — get/update/delete one user, `/me` | automatic `_id` (`IDHACK`) | 1 / 1 | No |
+| 8 | `User.find({ role, _id: { $ne } })` — last-admin guard | `createdAt_-1__id_-1` (full index walk) | 59 / 5 | No — same caveat as #2 |
+| 9 | Note list, `userId` filter, default sort — a user's own notes | `userId_1_createdAt_-1__id_-1` | 5 / 5 | No |
+| 10 | Note list, `userId` filter, `sortBy=title` | `userId_1_createdAt_-1__id_-1` (filters via index; sorts in memory) | 5 / 5 | No |
+| 11 | Note list, no filter, default sort — admin global notes | `createdAt_-1__id_-1` | 10 / 10 | No |
+| 12 | Note list, no filter, search — admin global notes | `createdAt_-1__id_-1` (sort order); regex filtered in `FETCH` | 10 / 10 | No |
+| 13 | Note list, no filter, `sortBy=title` — admin global notes | none — `SORT` + `COLLSCAN` | 300 / 10 | **Yes** |
+| 14 | `Note.findOne({ _id, userId })` — single owner-scoped note | automatic `_id` | 1 / 1 | No |
+| 15 | Post list, no filter, default sort — public posts | `createdAt_-1__id_-1` | 10 / 10 | No |
+| 16 | Post list, no filter, search — public posts | `createdAt_-1__id_-1` (sort order); regex filtered in `FETCH` | 50 / 10 | No |
+| 17 | Post list, no filter, `sortBy=title` — public posts | none — `SORT` + `COLLSCAN` | 300 / 10 | **Yes** |
+| 18 | `Post.find({ userId })` sorted newest-first — Scenario 2 sub-pipeline shape | `userId_1_createdAt_-1__id_-1` | 5 / 5 | No |
+| 19 | Scenario 1 interest-grouping `$match` | none, by design (see "Scenario 1" above) | 100 / 100 | Yes — expected and already documented above |
+
+### Findings
+
+- **No index was added, removed, or changed as a result of this audit.** Every
+  existing index maps to at least one real, currently-implemented query, and
+  no index was found to be redundant or unjustified.
+- Rows 3, 4, 13, 17 — sorting by a non-default, non-indexed field
+  (`email`/`firstName`/`lastName` on `User`, `title` on `Note`/`Post`) — do a
+  full collection scan. This is a deliberate trade-off, not an oversight:
+  these are optional, occasional sort choices on list endpoints, and indexing
+  every sortable column would violate "do not index every field" for little
+  real benefit. Diagnostic detail on row 3: sorting by `{ email: 1 }` *alone*
+  does use the unique `email_1` index — the collection scan only happens
+  because `parseSort` always appends `_id` as a stable tie-breaker, and the
+  resulting two-key sort `{ email: 1, _id: 1 }` doesn't match the single-key
+  `email_1` index's shape. Adding a second index `{ email: 1, _id: 1 }` purely
+  to cover this one optional sort was considered and rejected for the same
+  reason as rows 3/4/13/17 — it would be speculative indexing for an
+  infrequent, non-default option.
+- Rows 2 and 8 (`role` filter; the last-admin count) use a full **index**
+  walk rather than a collection scan, but still touch nearly every document —
+  functionally no better than a collection scan here. This reinforces the
+  Phase 6 decision not to index `role`: it's low-cardinality, used only as an
+  optional filter and in an infrequent safety check, not a primary access
+  pattern that would justify the extra write/storage cost.
+- Row 10 vs. row 13 is an instructive contrast: both sort by the unindexed
+  `title` field, but row 10 (a user's own notes) still only examines 5
+  documents, because the `userId` prefix of the owner-scoped compound index
+  narrows the candidate set before the in-memory sort. Row 13 (the admin
+  global listing) has no equality filter to exploit that way, so it falls
+  back to a full collection scan over all 300 notes.
+- Both required aggregation scenarios were re-confirmed, during this audit, to
+  still use exactly one `aggregate()` call each and to remain correctly
+  documented above — nothing changed for either of them in this phase.
+
+### Test-infrastructure finding (fixed during this audit)
+
+While re-running the full regression suite repeatedly to confirm the audit
+made no behavioral changes, one run showed a test expecting `409` (duplicate
+email) get `201` instead — a rare, real flake, not a one-off fluke. The cause
+was directly related to this audit's subject matter: `mongoose.connect()`
+resolves before each model's indexes finish building in the background,
+including the unique `email` index. On a fresh, just-created scratch test
+database, a duplicate-email test running early enough could occasionally
+insert before that uniqueness constraint was actually active yet. Every test
+file that connects to a database now explicitly `await`s
+`Model.createIndexes()` for its imported models right after `connect()`,
+closing that window. The full suite was then run 10 consecutive times with
+zero failures (previously ~1-in-6 showed this flake).
+
+### Critical rules re-confirmed
+
+- All 6 intentional indexes are declared via `schema.index()` — none via
+  field-level `index: true`/`unique: true` shortcuts.
+- No index duplicates the automatic `_id` index.
+- No standalone index duplicates a compound index's prefix (e.g. no bare
+  `{ userId: 1 }` on `Note` or `Post`).
+- No index exists on `interests` merely for `$unwind`/`$group`.
+- Not every field is indexed — `role`, `firstName`, `lastName`, `title`,
+  `content`, and `interests` all remain unindexed, each for a documented
+  reason above.
 
 ## Summary of restrictions followed
 

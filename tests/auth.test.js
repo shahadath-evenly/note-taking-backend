@@ -14,6 +14,10 @@ let baseUrl;
 
 before(async () => {
   await mongoose.connect(TEST_MONGO_URI);
+  // Index builds (e.g. the unique email index) happen in the background after
+  // connect() resolves; without this, a test could run before a uniqueness
+  // constraint is actually active on a fresh database.
+  await User.createIndexes();
   server = app.listen(0);
   const { port } = server.address();
   baseUrl = `http://127.0.0.1:${port}`;
