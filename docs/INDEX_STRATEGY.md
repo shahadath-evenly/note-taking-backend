@@ -142,6 +142,55 @@ scope required it.
 | `{ userId: 1, createdAt: -1, _id: -1 }` | The user-posts `$lookup` aggregation's per-user equality match (`posts.userId == user._id`) and newest-first ordering within that lookup. | No standalone `userId` index is declared — it would be redundant since this compound index already starts with `userId` and serves equality-only lookups on that field too. |
 | `{ createdAt: -1, _id: -1 }` | The public posts listing, which the API contract requires to be newest-first with stable pagination. | Distinct key shape (no `userId` prefix); supports the global (non-owner-scoped) listing that the Post collection's first index cannot serve. |
 
+## Scenario 2 — User posts via `$lookup` (`GET /api/users/:userId/posts`)
+
+Implemented in `src/repositories/user.repository.js#getUserWithPosts`. This is
+the **only** Mongoose call made in that request path — one `User.aggregate(pipeline)`
+call. A dedicated test spies on `User.aggregate` (asserting exactly one call
+and that the pipeline contains a `$lookup` stage) and on every `Post` read
+method (`find`, `findOne`, `distinct`, `countDocuments`,
+`estimatedDocumentCount`, `populate`), asserting all of them stay at zero.
+
+Pipeline, in order:
+1. `$match: { _id: userId }` — matches the requested user first, as required.
+   The `userId` route param is validated as a well-formed ObjectId *before*
+   the pipeline is even built (returning 400 otherwise), and a pipeline that
+   matches zero users (a well-formed but non-existent id) is distinguished
+   from "found with zero posts" by the service layer, returning 404.
+2. `$lookup` with `let`/`pipeline` (not the `localField`/`foreignField`
+   shorthand) because the join needs to sort and paginate the matched posts,
+   which the shorthand form cannot do on its own:
+   - `$match: { $expr: { $eq: ['$userId', '$$userId'] } }` — equality match
+     against the outer user's `_id`.
+   - `$sort: { createdAt: -1, _id: -1 }` — newest-first with a stable
+     tie-breaker.
+   - `$facet` — paginates the matched posts in `data` and computes
+     `totalCount` in the same sub-pipeline, so no separate count query is
+     ever made.
+3. `$unwind` the single-element `$lookup` array (the nested `$facet` always
+   produces exactly one document) and `$project` only a safe user field list
+   (`_id`, `firstName`, `lastName`, `email`, `role` — no `password`), with
+   `posts` and `totalPosts` pulled out of the lookup result.
+
+### Index behavior (evidence)
+
+Ran `explain("executionStats")` on this exact pipeline against 250 seeded
+posts (50 belonging to the target user, 200 belonging to another user):
+
+- The initial `$match` on `User._id` resolves via `"stage": "IDHACK"` —
+  MongoDB's fast path for an exact `_id` match — `totalKeysExamined: 1`,
+  `totalDocsExamined: 1`.
+- The `$lookup` stage reports `"indexesUsed": ["userId_1_createdAt_-1__id_-1"]`,
+  `"collectionScans": 0`, `"totalDocsExamined": 50`, `"totalKeysExamined": 50`
+  — exactly the 50 posts belonging to the matched user, not all 250 in the
+  collection. The compound index serves both the equality match on `userId`
+  and the sort on `createdAt`/`_id` within the lookup, with zero collection
+  scans.
+
+No additional index was added for this scenario — the existing Post compound
+index (declared for this exact purpose back when the model was created) is
+sufficient, confirmed by this evidence.
+
 ## Summary of restrictions followed
 
 - No duplicate `_id` indexes declared.

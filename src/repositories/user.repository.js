@@ -82,6 +82,49 @@ function groupByInterests({ skip, limit }) {
   ]);
 }
 
+// Scenario 2 (user posts via $lookup): this is the ONLY Mongoose call allowed
+// in that request path. The initial $match (by _id) relies on the automatic
+// User `_id` index. The $lookup's sub-pipeline matches Posts by `userId`
+// (equality) and sorts newest-first, both served by the Post compound index
+// `{ userId: 1, createdAt: -1, _id: -1 }`. Pagination and the total post
+// count are both computed inside that same sub-pipeline via $facet, so no
+// separate Post query of any kind is ever made. Only a safe user field list
+// is projected, so a password hash can never reach the response.
+function getUserWithPosts(userId, { skip, limit }) {
+  return User.aggregate([
+    { $match: { _id: userId } },
+    {
+      $lookup: {
+        from: 'posts',
+        let: { userId: '$_id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$userId', '$$userId'] } } },
+          { $sort: { createdAt: -1, _id: -1 } },
+          {
+            $facet: {
+              data: [{ $skip: skip }, { $limit: limit }],
+              totalCount: [{ $count: 'count' }],
+            },
+          },
+        ],
+        as: 'postsResult',
+      },
+    },
+    { $unwind: '$postsResult' },
+    {
+      $project: {
+        _id: 1,
+        firstName: 1,
+        lastName: 1,
+        email: 1,
+        role: 1,
+        posts: '$postsResult.data',
+        totalPosts: { $ifNull: [{ $arrayElemAt: ['$postsResult.totalCount.count', 0] }, 0] },
+      },
+    },
+  ]);
+}
+
 module.exports = {
   buildFilter,
   findMany,
@@ -92,4 +135,5 @@ module.exports = {
   deleteById,
   countAdmins,
   groupByInterests,
+  getUserWithPosts,
 };
