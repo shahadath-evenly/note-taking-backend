@@ -34,7 +34,7 @@ Built with **Node.js, Express, MongoDB/Mongoose, JWT, and bcrypt**.
 | Database / ODM | MongoDB, Mongoose |
 | Auth | JWT (`jsonwebtoken`), bcrypt password hashing (`bcryptjs`) |
 | Validation | Yup schemas on every request body/query |
-| Security middleware | `helmet`, `cors` (single allow-listed origin), `express-rate-limit` on auth routes |
+| Security middleware | `helmet`, `cors` (open to any origin — see [Authentication](#authentication)), `express-rate-limit` on auth routes |
 | Testing | Node's built-in `node:test` + `node:assert/strict`, run against a real MongoDB instance |
 
 ## Project structure
@@ -92,7 +92,6 @@ See `.env.example` for the full list with placeholder values. Never commit a rea
 | `PORT` | no (default `5001`) | HTTP port |
 | `MONGO_URI` | **yes** | MongoDB connection string |
 | `MONGO_TEST_URI` | no | Overrides the DB used by `npm test` per test file (falls back to a local `..._test_<name>` database) |
-| `CORS_ORIGIN` | **yes** | The single frontend origin allowed to call this API — never a wildcard |
 | `BODY_LIMIT` | no (default `100kb`) | Max JSON/urlencoded request body size |
 | `JWT_SECRET` | **yes**, min 16 chars | HMAC secret used to sign/verify auth tokens |
 | `JWT_EXPIRES_IN` | no (default `1h`) | Token lifetime (e.g. `1h`, `7d`) |
@@ -111,6 +110,8 @@ Authorization: Bearer <token>
 ```
 
 `token` is the JWT returned from `POST /api/auth/login` (also returned from `GET /api/auth/me`'s underlying session, not re-issued there). It encodes `{ userId, role }` and expires per `JWT_EXPIRES_IN`. A missing, malformed, expired token, or a token for a user that no longer exists all fail the same way: `401 Unauthorized`.
+
+**CORS is open to any origin** (`app.use(cors())`, no allow-list). This is a deliberate choice, not an oversight: every session lives in the `Authorization` header, never a cookie, so there is no ambient credential a browser could leak cross-origin regardless of which origin is calling this API — there's nothing for a same-origin policy to protect here.
 
 ## Roles & permissions
 

@@ -16,7 +16,11 @@ const errorHandler = require("./middlewares/errorHandler");
 const app = express();
 
 app.use(helmet());
-// app.use(cors({ origin: config.corsOrigin, credentials: true }));
+// Open to any origin: auth is a bearer JWT in the Authorization header, not a
+// cookie, so there's no session to leak cross-origin — `credentials: true`
+// is deliberately omitted since it's both unused and incompatible with a
+// wildcard origin (browsers reject that combination outright).
+app.use(cors());
 app.use(express.json({ limit: config.bodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: config.bodyLimit }));
 

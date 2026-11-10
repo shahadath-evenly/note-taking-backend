@@ -2,7 +2,6 @@ const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 
 const app = require('../src/app');
-const config = require('../src/config/env');
 
 // No Mongo connection needed: /health touches no model, so these checks run
 // against the real HTTP stack (helmet + cors + the error handler) in
@@ -26,24 +25,23 @@ test('security headers: helmet sets protective headers and hides the framework',
   assert.equal(res.headers.get('x-powered-by'), null);
 });
 
-test('CORS: reflects only the configured origin, not a wildcard', async () => {
-  const res = await fetch(`${baseUrl}/health`, { headers: { Origin: config.corsOrigin } });
+test('CORS: open to any origin by design (auth is a bearer token, not a cookie, so there is no session to protect cross-origin)', async () => {
+  const res = await fetch(`${baseUrl}/health`, { headers: { Origin: 'https://some-arbitrary-origin.example' } });
 
-  assert.equal(res.headers.get('access-control-allow-origin'), config.corsOrigin);
-  assert.notEqual(res.headers.get('access-control-allow-origin'), '*');
+  assert.equal(res.headers.get('access-control-allow-origin'), '*');
 });
 
 test('CORS: a preflight request for a protected route is handled without reaching the route handler', async () => {
   const res = await fetch(`${baseUrl}/api/notes`, {
     method: 'OPTIONS',
     headers: {
-      Origin: config.corsOrigin,
+      Origin: 'https://some-arbitrary-origin.example',
       'Access-Control-Request-Method': 'GET',
     },
   });
 
   assert.ok(res.status < 300);
-  assert.equal(res.headers.get('access-control-allow-origin'), config.corsOrigin);
+  assert.equal(res.headers.get('access-control-allow-origin'), '*');
 });
 
 test('404: an unknown route returns a safe JSON error, not an HTML stack trace', async () => {

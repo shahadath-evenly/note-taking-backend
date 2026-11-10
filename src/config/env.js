@@ -8,7 +8,6 @@ const envSchema = yup.object({
     .default('development'),
   PORT: yup.number().integer().positive().default(5001),
   MONGO_URI: yup.string().required('MONGO_URI is required'),
-  CORS_ORIGIN: yup.string().required('CORS_ORIGIN is required'),
   BODY_LIMIT: yup.string().default('100kb'),
   JWT_SECRET: yup
     .string()
@@ -36,7 +35,6 @@ const config = Object.freeze({
   nodeEnv: validatedEnv.NODE_ENV,
   port: validatedEnv.PORT,
   mongoUri: validatedEnv.MONGO_URI,
-  corsOrigin: validatedEnv.CORS_ORIGIN,
   bodyLimit: validatedEnv.BODY_LIMIT,
   jwtSecret: validatedEnv.JWT_SECRET,
   jwtExpiresIn: validatedEnv.JWT_EXPIRES_IN,
